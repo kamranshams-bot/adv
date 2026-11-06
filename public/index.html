@@ -149,6 +149,7 @@
   .domain { color: var(--brand); font-weight: 600; }
   .pill { border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
   .pill.name { background: var(--ok-bg); color: var(--ok); border-color: transparent; font-weight: 600; }
+  .pill.partial { background: #fff1cc; color: #8a5a00; border-color: transparent; font-weight: 600; }
   .snippet { margin: 10px 0 10px; color: var(--text); opacity: .9; font-size: 14.5px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .hits { display: flex; flex-wrap: wrap; gap: 6px; }
   .hit { background: var(--hit-bg); color: var(--hit); border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
@@ -364,7 +365,7 @@
                 <div class="meta">
                   <span class="domain">${esc(domainOf(r))}</span>
                   ${r.date ? `<span>&middot; ${esc(r.date.slice(0, 10))}</span>` : ''}
-                  ${r.subjectInText ? '<span class="pill name">Name in text</span>' : ''}
+                  ${r.subjectInText ? '<span class="pill name">Full name</span>' : r.nameMatch === 'partial' ? '<span class="pill partial">Part of name</span>' : ''}
                   ${(r.categories || []).map((c) => `<span class="pill">${esc(c)}</span>`).join('')}
                 </div>
               </div>

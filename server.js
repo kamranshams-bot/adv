@@ -153,6 +153,62 @@ function buildPrompt(subject, terms, label) {
   ].join(' ');
 }
 
+// ---- Matching ----
+// Text is normalised before matching: accents removed, case ignored, and any
+// punctuation or extra spaces treated as a single space. Matches are whole
+// words, so "arms" does not match "alarms" and "crime" does not match "Crimea".
+function normText(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// Common word endings allowed on a keyword: drugs, corruption, bribed, sanctioned...
+// Not allowed: "crime" + "a" (Crimea), "arm" inside "alarm".
+const TERM_ENDINGS = '(?:s|es|d|ed|ing|ion|ions|ism|ist|ists|er|ers|mer|mers|y|ly|al|ulent|ian|ians|n|ese)?';
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function termRegex(phrase) {
+  const words = normText(phrase).split(' ').filter(Boolean).map(escapeRe);
+  if (!words.length) return null;
+  words[words.length - 1] += TERM_ENDINGS;
+  return new RegExp(`(^| )${words.join(' ')}( |$)`);
+}
+
+// Keyword match: whole words, allowing the endings above.
+function termFound(norm, phrase) {
+  const re = termRegex(phrase);
+  return re ? re.test(norm) : false;
+}
+
+// Name match: whole words only (names are not given endings).
+function hasPhrase(norm, phrase) {
+  const p = normText(phrase);
+  if (!p) return false;
+  return ` ${norm} `.includes(` ${p} `);
+}
+
+function matchTerms(text, terms) {
+  const norm = normText(text);
+  return terms.filter((t) => termFound(norm, t));
+}
+
+// Name tiers:
+//   full    - every part of the name is present (any order, middle names allowed)
+//   partial - at least one part of the name (4+ letters) is present
+//   none    - no part of the name found
+function nameMatch(text, subject) {
+  const norm = normText(text);
+  const parts = [...new Set(normText(subject).split(' ').filter(Boolean))];
+  if (!parts.length) return 'none';
+  const found = parts.filter((p) => hasPhrase(norm, p));
+  if (found.length === parts.length) return 'full';
+  if (found.some((p) => p.length >= 4)) return 'partial';
+  return 'none';
+}
+
 // Results are cached per subject for 24 hours, so repeat searches are instant.
 // Pass refresh: true to run a new search.
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -178,17 +234,18 @@ async function runSearch(subject, refresh = false) {
   for (const { category, terms, items } of fetched) {
     for (const it of items) {
       const text = `${it.title || ''} ${it.snippet || ''}`;
-      const lower = text.toLowerCase();
-      const hits = terms.filter((t) => lower.includes(t.toLowerCase()));
+      const hits = matchTerms(text, terms);
       let r = byLink.get(it.link);
       if (!r) {
+        const nm = nameMatch(text, subject);
         r = {
           title: it.title,
           link: it.link,
           displayLink: it.displayLink,
           snippet: it.snippet,
           date: '',
-          subjectInText: lower.includes(subjectLower),
+          nameMatch: nm,
+          subjectInText: nm === 'full',
           categories: [],
           matchedTerms: [],
         };
@@ -251,9 +308,13 @@ function scoreResult(r) {
     score = Math.max(score, 2);
     reasons.push(`sanctioned region mentioned: ${regionHits.join(', ')}`);
   }
-  if (r.subjectInText) {
+  const tier = r.nameMatch || (r.subjectInText ? 'full' : 'none');
+  if (tier === 'full') {
     score += 2;
-    reasons.push('subject named in title or summary');
+    reasons.push('full name in title or summary');
+  } else if (tier === 'partial') {
+    score += 1;
+    reasons.push('part of the name in title or summary');
   }
 
   const level = score >= 5 ? 'high' : score >= 3 ? 'medium' : 'low';
@@ -487,10 +548,16 @@ const server = http.createServer(async (req, res) => {
         displayLink: String(r.displayLink || ''),
         snippet: String(r.snippet || ''),
         date: String(r.date || ''),
-        matchedTerms: Array.isArray(r.matchedTerms) ? r.matchedTerms.map(String) : [],
-        subjectInText: Boolean(r.subjectInText),
         categories: Array.isArray(r.categories) ? r.categories.map(String) : [],
-      })).map(applyRisk);
+      })).map((r) => {
+        // Recompute matches on the server so the PDF agrees with the search
+        const text = `${r.title} ${r.snippet}`;
+        const categoryTerms = [...CRIME_TERMS, ...REGION_TERMS];
+        r.matchedTerms = matchTerms(text, categoryTerms);
+        r.nameMatch = nameMatch(text, subject);
+        r.subjectInText = r.nameMatch === 'full';
+        return applyRisk(r);
+      });
       return buildPdf(res, subject, results);
     }
 
@@ -512,4 +579,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildQueries, CRIME_TERMS, REGION_TERMS, scoreResult, overallRisk };
+module.exports = { buildQueries, CRIME_TERMS, REGION_TERMS, scoreResult, overallRisk, nameMatch, matchTerms };
