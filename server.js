@@ -187,10 +187,84 @@ async function runSearch(subject) {
     }
   }
 
-  // Most relevant first: subject named in the title/snippet, then most keyword hits
-  return [...byLink.values()].sort(
-    (a, b) => Number(b.subjectInText) - Number(a.subjectInText) || b.matchedTerms.length - a.matchedTerms.length
+  const all = [...byLink.values()];
+  all.forEach(applyRisk);
+  // Highest risk first, then subject named in text, then most keyword hits
+  return all.sort(
+    (a, b) => b.riskScore - a.riskScore
+      || Number(b.subjectInText) - Number(a.subjectInText)
+      || b.matchedTerms.length - a.matchedTerms.length
   );
+}
+
+// ---- Risk rating ----
+// Transparent rule-based score. A reviewer can see the reasons for every rating.
+//   Keyword severity (highest hit):  high terms = 3, medium = 2, low = 1
+//   Sanctioned region + financial crime keyword in the same result: +2
+//   Subject name appears in the title or summary: +2
+//   Per result:  score >= 5 -> HIGH,  3-4 -> MEDIUM,  otherwise LOW
+//   Region only (no crime keyword): scored as 2 (sanctions exposure)
+// Overall (for a whole search or export):
+//   HIGH   if 1+ HIGH result names the subject, or 3+ HIGH results
+//   MEDIUM if 1+ MEDIUM/HIGH result names the subject, or 2+ MEDIUM/HIGH results
+//   LOW    otherwise
+const SEVERITY = {
+  'money laundering': 3, 'terrorist': 3, 'terrorism': 3, 'trafficking': 3, 'nuclear': 3,
+  'arms': 3, 'weapon': 3, 'smuggling': 3, 'ponzi': 3,
+  'tax evasion': 2, 'drug': 2, 'embezzlement': 2, 'bribe': 2, 'corrupt': 2,
+  'fraud': 2, 'scam': 2, 'sanction': 2,
+  'crime': 1, 'arrest': 1, 'illegal': 1,
+};
+const LEVEL_NAME = { 3: 'high', 2: 'medium', 1: 'low' };
+
+function scoreResult(r) {
+  const terms = r.matchedTerms || [];
+  const crimeHits = terms.filter((t) => SEVERITY[t.toLowerCase()]);
+  const regionHits = terms.filter((t) => !SEVERITY[t.toLowerCase()]);
+  const top = Math.max(0, ...crimeHits.map((t) => SEVERITY[t.toLowerCase()]));
+  let score = 0;
+  const reasons = [];
+
+  if (top) {
+    score += top;
+    reasons.push(`${LEVEL_NAME[top]}-severity keyword: ${crimeHits.join(', ')}`);
+  }
+  if (regionHits.length && crimeHits.length) {
+    score += 2;
+    reasons.push(`sanctioned region with financial crime: ${regionHits.join(', ')}`);
+  } else if (regionHits.length) {
+    score = Math.max(score, 2);
+    reasons.push(`sanctioned region mentioned: ${regionHits.join(', ')}`);
+  }
+  if (r.subjectInText) {
+    score += 2;
+    reasons.push('subject named in title or summary');
+  }
+
+  const level = score >= 5 ? 'high' : score >= 3 ? 'medium' : 'low';
+  return { level, score, reasons };
+}
+
+function applyRisk(r) {
+  const { level, score, reasons } = scoreResult(r);
+  r.risk = level;
+  r.riskScore = score;
+  r.riskReasons = reasons;
+  return r;
+}
+
+function overallRisk(results) {
+  const high = results.filter((r) => r.risk === 'high');
+  const medOrHigh = results.filter((r) => r.risk === 'high' || r.risk === 'medium');
+  const counts = {
+    high: high.length,
+    medium: results.filter((r) => r.risk === 'medium').length,
+    low: results.filter((r) => r.risk === 'low').length,
+  };
+  let level = 'low';
+  if (high.some((r) => r.subjectInText) || high.length >= 3) level = 'high';
+  else if (medOrHigh.some((r) => r.subjectInText) || medOrHigh.length >= 2) level = 'medium';
+  return { level, counts };
 }
 
 // ---- PDF export ----
@@ -216,7 +290,13 @@ function buildPdf(res, subject, results) {
   doc.rect(50, 50, 495, 86).fill('#1a4fb3');
   doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(20).text('Adverse Media Search Report', 68, 66);
   doc.font('Helvetica').fontSize(11).text(`Subject: ${subject}`, 68, 96);
+  const overall = overallRisk(results);
+  const RISK_COLOR = { high: '#ffb4b4', medium: '#ffe08a', low: '#b7f0cf' };
   doc.text(`Generated: ${stamp}     Links included: ${results.length}`, 68, 112);
+  doc.font('Helvetica-Bold').fontSize(11).fillColor(RISK_COLOR[overall.level])
+    .text(`Overall risk: ${overall.level.toUpperCase()}`, 68, 126, { lineBreak: false });
+  doc.fillColor('#ffffff').font('Helvetica').fontSize(9)
+    .text(`High ${overall.counts.high}  |  Medium ${overall.counts.medium}  |  Low ${overall.counts.low}`, 230, 127, { lineBreak: false });
   doc.y = 150;
   doc.fillColor(INK);
 
@@ -245,6 +325,10 @@ function buildPdf(res, subject, results) {
     doc.font('Helvetica').fontSize(9).fillColor(MUTED);
     doc.text(`Source: ${r.displayLink || ''}${r.date ? `   Date: ${r.date.slice(0, 10)}` : ''}`);
     doc.fillColor(BLUE).text(r.link, { link: r.link, underline: true });
+    const RISK_TEXT = { high: '#9b1c1c', medium: '#8a5a00', low: '#0f7b4b' };
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(RISK_TEXT[r.risk] || MUTED)
+      .text(`Risk: ${(r.risk || 'low').toUpperCase()}`, { continued: true });
+    doc.font('Helvetica').fillColor(MUTED).text(`  (${(r.riskReasons || []).join('; ') || 'no keyword match'})`);
     doc.fillColor(INK);
     if (r.snippet) doc.font('Helvetica').fontSize(10).fillColor(INK).text(r.snippet);
     if (r.matchedTerms && r.matchedTerms.length) {
@@ -334,7 +418,13 @@ const server = http.createServer(async (req, res) => {
         query: buildPrompt(subject, terms, category),
       }));
       const results = await runSearch(subject);
-      return sendJson(res, 200, { subject, queries, count: results.length, results });
+      return sendJson(res, 200, {
+        subject,
+        queries,
+        count: results.length,
+        overall: overallRisk(results),
+        results,
+      });
     }
 
     if (req.method === 'POST' && req.url === '/api/export-pdf') {
@@ -347,7 +437,9 @@ const server = http.createServer(async (req, res) => {
         snippet: String(r.snippet || ''),
         date: String(r.date || ''),
         matchedTerms: Array.isArray(r.matchedTerms) ? r.matchedTerms.map(String) : [],
-      }));
+        subjectInText: Boolean(r.subjectInText),
+        categories: Array.isArray(r.categories) ? r.categories.map(String) : [],
+      })).map(applyRisk);
       return buildPdf(res, subject, results);
     }
 
@@ -361,9 +453,12 @@ const server = http.createServer(async (req, res) => {
 
 // Local: 127.0.0.1 only. Cloud hosts set HOST=0.0.0.0 so the platform can reach the app.
 const HOST = process.env.HOST || '127.0.0.1';
-server.listen(PORT, HOST, () => {
-  console.log(`Adverse media portal running at http://localhost:${PORT}`);
-  if (!sa) console.log('Warning: GOOGLE_SERVICE_ACCOUNT_JSON not set (see .env.example)');
-});
+// Start the server only when run directly (not when required by tests)
+if (require.main === module) {
+  server.listen(PORT, HOST, () => {
+    console.log(`Adverse media portal running at http://localhost:${PORT}`);
+    if (!sa) console.log('Warning: GOOGLE_SERVICE_ACCOUNT_JSON not set (see .env.example)');
+  });
+}
 
-module.exports = { buildQueries, CRIME_TERMS, REGION_TERMS };
+module.exports = { buildQueries, CRIME_TERMS, REGION_TERMS, scoreResult, overallRisk };

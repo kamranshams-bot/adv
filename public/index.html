@@ -154,6 +154,35 @@
   .hit { background: var(--hit-bg); color: var(--hit); border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
   .empty { text-align: center; color: var(--muted); padding: 48px 20px; border: 1px dashed var(--border); border-radius: 14px; }
 
+  /* ---------- risk rating ---------- */
+  .risk { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; white-space: nowrap; }
+  .risk::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .risk.high { background: #fde3e3; color: #9b1c1c; }
+  .risk.medium { background: #fff1cc; color: #8a5a00; }
+  .risk.low { background: #e1f6ea; color: #0f7b4b; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .risk.high { background: #3a2030; color: #ffb4b4; }
+    :root:not([data-theme="light"]) .risk.medium { background: #3a3218; color: #ffd66b; }
+    :root:not([data-theme="light"]) .risk.low { background: #173228; color: #6fe3a8; }
+  }
+  :root[data-theme="dark"] .risk.high { background: #3a2030; color: #ffb4b4; }
+  :root[data-theme="dark"] .risk.medium { background: #3a3218; color: #ffd66b; }
+  :root[data-theme="dark"] .risk.low { background: #173228; color: #6fe3a8; }
+
+  .banner {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; justify-content: space-between;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px;
+    box-shadow: var(--shadow); margin-bottom: 12px; border-left: 6px solid var(--muted);
+  }
+  .banner.high { border-left-color: #c2352f; }
+  .banner.medium { border-left-color: #e0a100; }
+  .banner.low { border-left-color: #1f9d63; }
+  .banner h2 { margin: 0; font-size: 17px; }
+  .banner p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
+  .card.high { border-left: 4px solid #c2352f; }
+  .card.medium { border-left: 4px solid #e0a100; }
+  .card.low { border-left: 4px solid #1f9d63; }
+
   .skeleton {
     height: 96px; border-radius: 14px; background: linear-gradient(90deg, var(--surface), var(--border), var(--surface));
     background-size: 200% 100%; animation: shimmer 1.2s infinite linear; border: 1px solid var(--border);
@@ -212,6 +241,14 @@
   </div>
 
   <section id="resultsArea" class="hidden">
+    <div class="banner" id="banner">
+      <div>
+        <h2 id="bannerTitle">Overall risk</h2>
+        <p id="bannerText"></p>
+      </div>
+      <span class="risk" id="bannerLevel">-</span>
+    </div>
+
     <div class="stats">
       <div class="stat"><b id="statTotal">0</b><span>Sources found</span></div>
       <div class="stat"><b id="statName">0</b><span>Name mentioned in text</span></div>
@@ -226,6 +263,8 @@
     <div class="toolbar">
       <div class="chips" id="filters">
         <button class="chip-btn on" data-filter="all" type="button">All</button>
+        <button class="chip-btn" data-filter="high" type="button">High risk</button>
+        <button class="chip-btn" data-filter="medium" type="button">Medium risk</button>
         <button class="chip-btn" data-filter="name" type="button">Name in text</button>
         <button class="chip-btn" data-filter="crime" type="button">Financial crime</button>
         <button class="chip-btn" data-filter="sanctions" type="button">Sanctioned regions</button>
@@ -265,7 +304,26 @@
     el.classList.toggle('error', !!isError);
   }
 
+  const RISK_LABEL = { high: 'High risk', medium: 'Medium risk', low: 'Low risk' };
+  const BANNER_TEXT = {
+    high: 'Serious findings. Review the high-risk links first.',
+    medium: 'Some findings need review before a decision.',
+    low: 'No strong adverse findings in the sources checked.',
+  };
+
+  function renderBanner(overall) {
+    const level = (overall && overall.level) || 'low';
+    const c = (overall && overall.counts) || { high: 0, medium: 0, low: 0 };
+    $('banner').className = `banner ${level}`;
+    $('bannerTitle').textContent = `Overall risk: ${RISK_LABEL[level]}`;
+    $('bannerText').textContent = `${BANNER_TEXT[level]}  High ${c.high}  ·  Medium ${c.medium}  ·  Low ${c.low}`;
+    $('bannerLevel').className = `risk ${level}`;
+    $('bannerLevel').textContent = level.toUpperCase();
+  }
+
   function visible(r) {
+    if (filter === 'high') return r.risk === 'high';
+    if (filter === 'medium') return r.risk === 'medium';
     if (filter === 'name') return r.subjectInText;
     if (filter === 'crime') return (r.categories || []).some((c) => c.indexOf('financial') > -1);
     if (filter === 'sanctions') return (r.categories || []).some((c) => c.indexOf('Sanctioned') > -1);
@@ -295,13 +353,14 @@
       list.innerHTML = '<div class="empty">Nothing matches this filter.</div>';
     } else {
       list.innerHTML = items.map(({ r, i }) => `
-        <article class="card ${r.selected ? 'on' : 'off'}">
+        <article class="card ${r.selected ? 'on' : 'off'} ${esc(r.risk || 'low')}">
           <input type="checkbox" data-i="${i}" ${r.selected ? 'checked' : ''} aria-label="Include ${esc(r.title)}">
           <div style="min-width:0">
             <div class="row">
               <div class="avatar" aria-hidden="true">${esc(initialOf(r))}</div>
               <div style="min-width:0">
-                <h3><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a></h3>
+                <h3><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a>
+                  <span class="risk ${esc(r.risk || 'low')}" title="${esc((r.riskReasons || []).join('; '))}">${esc(RISK_LABEL[r.risk || 'low'])}</span></h3>
                 <div class="meta">
                   <span class="domain">${esc(domainOf(r))}</span>
                   ${r.date ? `<span>&middot; ${esc(r.date.slice(0, 10))}</span>` : ''}
@@ -361,6 +420,7 @@
         results: data.results.map((r) => ({ ...r, selected: true })),
       };
       filter = 'all';
+      renderBanner(data.overall);
       document.querySelectorAll('#filters .chip-btn').forEach((x) => x.classList.toggle('on', x.dataset.filter === 'all'));
       $('queries').innerHTML = data.queries.map((q) =>
         `<div style="margin-top:8px"><b>${esc(q.category)}</b><code>${esc(q.query)}</code></div>`).join('');
