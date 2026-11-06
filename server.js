@@ -283,6 +283,24 @@ function overallRisk(results) {
 }
 
 // ---- PDF export ----
+// Split a long string (such as a link address with no spaces) into pieces that
+// fit within `width` at the document's current font and size.
+function wrapChars(doc, str, width) {
+  const parts = [];
+  let cur = '';
+  for (const ch of String(str)) {
+    const next = cur + ch;
+    if (cur && doc.widthOfString(next) > width) {
+      parts.push(cur);
+      cur = ch;
+    } else {
+      cur = next;
+    }
+  }
+  if (cur) parts.push(cur);
+  return parts;
+}
+
 function buildPdf(res, subject, results) {
   const stamp = new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
   const slug = subject.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'subject';
@@ -323,9 +341,19 @@ function buildPdf(res, subject, results) {
   if (results.length) {
     doc.font('Helvetica-Bold').fontSize(13).fillColor(INK).text('All links in this report');
     doc.moveDown(0.4);
+    // Each link is written on its own lines with explicit positions. Long
+    // addresses are broken into pieces that fit the width, and every piece
+    // stays clickable. (Using continued:true with long addresses broke the layout.)
     results.forEach((r, i) => {
-      doc.font('Helvetica').fontSize(9).fillColor(MUTED).text(`${i + 1}.  `, { continued: true });
-      doc.fillColor(BLUE).text(r.link, { link: r.link, underline: true });
+      const y0 = doc.y;
+      doc.font('Helvetica').fontSize(9).fillColor(MUTED);
+      doc.text(`${i + 1}.`, 50, y0, { width: 24, lineBreak: false });
+      doc.font('Helvetica').fontSize(8.5).fillColor(BLUE);
+      const parts = wrapChars(doc, r.link, 470);
+      parts.forEach((p, k) => {
+        doc.text(p, 76, k === 0 ? y0 : doc.y, { width: 470, lineBreak: true, link: r.link, underline: true });
+      });
+      doc.y += 4;
     });
     doc.moveDown(1);
     doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#d9dde5').stroke();
@@ -340,9 +368,13 @@ function buildPdf(res, subject, results) {
     doc.font('Helvetica').fontSize(9).fillColor(MUTED);
     doc.text(`Source: ${r.displayLink || ''}${r.date ? `   Date: ${r.date.slice(0, 10)}` : ''}`);
     const RISK_TEXT = { high: '#9b1c1c', medium: '#8a5a00', low: '#0f7b4b' };
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(RISK_TEXT[r.risk] || MUTED)
-      .text(`Risk: ${(r.risk || 'low').toUpperCase()}`, { continued: true });
-    doc.font('Helvetica').fillColor(MUTED).text(`  (${(r.riskReasons || []).join('; ') || 'no keyword match'})`);
+    const riskLabel = `Risk: ${(r.risk || 'low').toUpperCase()}`;
+    const riskY = doc.y;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(RISK_TEXT[r.risk] || MUTED);
+    doc.text(riskLabel, 50, riskY, { lineBreak: false });
+    const labelW = doc.widthOfString(riskLabel) + 8;
+    doc.font('Helvetica').fillColor(MUTED);
+    doc.text(`(${(r.riskReasons || []).join('; ') || 'no keyword match'})`, 50 + labelW, riskY, { width: 495 - labelW });
     doc.fillColor(INK);
     if (r.snippet) doc.font('Helvetica').fontSize(10).fillColor(INK).text(r.snippet);
     if (r.matchedTerms && r.matchedTerms.length) {
@@ -354,12 +386,17 @@ function buildPdf(res, subject, results) {
   });
 
   // page footers
+  // Footers sit inside the bottom margin. Drop the margin while writing them,
+  // otherwise pdfkit adds a new blank page for every footer.
   const range = doc.bufferedPageRange();
+  const savedBottomMargin = doc.page.margins.bottom;
   for (let i = range.start; i < range.start + range.count; i++) {
     doc.switchToPage(i);
+    doc.page.margins.bottom = 0;
     doc.font('Helvetica').fontSize(8).fillColor('#666')
       .text(`Page ${i + 1} of ${range.count}`, 50, doc.page.height - 35, { align: 'center', width: 495, lineBreak: false });
   }
+  doc.page.margins.bottom = savedBottomMargin;
   doc.end();
 }
 
