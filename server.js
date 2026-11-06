@@ -207,32 +207,52 @@ function buildPdf(res, subject, results) {
   const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
   doc.pipe(res);
 
-  doc.font('Helvetica-Bold').fontSize(18).text('Adverse Media Search Report');
-  doc.moveDown(0.3);
-  doc.font('Helvetica').fontSize(11).fillColor('#000');
-  doc.text(`Subject: ${subject}`);
-  doc.text(`Generated: ${stamp}`);
-  doc.text(`Results exported: ${results.length}`);
-  doc.moveDown(0.8);
-  doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#999').stroke();
-  doc.moveDown(0.8);
+  const BLUE = '#1a4fb3';
+  const INK = '#1d2330';
+  const MUTED = '#5d6675';
+  const HIT = '#8a1c1c';
+
+  // ---- Cover block ----
+  doc.rect(50, 50, 495, 86).fill('#1a4fb3');
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(20).text('Adverse Media Search Report', 68, 66);
+  doc.font('Helvetica').fontSize(11).text(`Subject: ${subject}`, 68, 96);
+  doc.text(`Generated: ${stamp}     Links included: ${results.length}`, 68, 112);
+  doc.y = 150;
+  doc.fillColor(INK);
 
   if (results.length === 0) {
-    doc.fontSize(11).text('No results selected.');
+    doc.font('Helvetica').fontSize(11).fillColor(INK).text('No results selected.');
   }
 
+  // ---- Index of every link in the report ----
+  if (results.length) {
+    doc.font('Helvetica-Bold').fontSize(13).fillColor(INK).text('All links in this report');
+    doc.moveDown(0.4);
+    results.forEach((r, i) => {
+      doc.font('Helvetica').fontSize(9).fillColor(MUTED).text(`${i + 1}.  `, { continued: true });
+      doc.fillColor(BLUE).text(r.link, { link: r.link, underline: true });
+    });
+    doc.moveDown(1);
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#d9dde5').stroke();
+    doc.moveDown(0.8);
+  }
+
+  // ---- Details for each result ----
   results.forEach((r, i) => {
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#1a4fb3')
+    if (doc.y > doc.page.height - 150) doc.addPage();
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(BLUE)
       .text(`${i + 1}. ${r.title}`, { link: r.link, underline: false });
-    doc.font('Helvetica').fontSize(9).fillColor('#333');
+    doc.font('Helvetica').fontSize(9).fillColor(MUTED);
     doc.text(`Source: ${r.displayLink || ''}${r.date ? `   Date: ${r.date.slice(0, 10)}` : ''}`);
-    doc.fillColor('#1a4fb3').text(r.link, { link: r.link, underline: true });
-    doc.fillColor('#333');
-    if (r.snippet) doc.text(r.snippet);
+    doc.fillColor(BLUE).text(r.link, { link: r.link, underline: true });
+    doc.fillColor(INK);
+    if (r.snippet) doc.font('Helvetica').fontSize(10).fillColor(INK).text(r.snippet);
     if (r.matchedTerms && r.matchedTerms.length) {
-      doc.fillColor('#8a1c1c').text(`Matched terms: ${r.matchedTerms.join(', ')}`);
+      doc.font('Helvetica').fontSize(9).fillColor(HIT).text(`Matched terms: ${r.matchedTerms.join(', ')}`);
     }
-    doc.fillColor('#000').moveDown(0.8);
+    doc.moveDown(0.3);
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#eceff4').stroke();
+    doc.moveDown(0.6);
   });
 
   // page footers

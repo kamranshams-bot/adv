@@ -6,142 +6,336 @@
 <title>Adverse Media Search</title>
 <style>
   :root {
-    --bg: #f5f6f8; --card: #ffffff; --text: #1d2330; --muted: #5d6675;
-    --border: #d9dde5; --accent: #1a4fb3; --accent-text: #ffffff; --hit: #8a1c1c; --hit-bg: #fbe9e9;
+    --bg: #f4f6fb; --surface: #ffffff; --text: #141b2d; --muted: #5b6478;
+    --border: #e1e6f0; --brand: #2551d8; --brand-2: #6d5dfc; --brand-text: #ffffff;
+    --hit: #9b1c1c; --hit-bg: #fdecec; --ok: #0f7b4b; --ok-bg: #e6f6ee;
+    --shadow: 0 1px 2px rgba(20,27,45,.06), 0 8px 24px rgba(20,27,45,.06);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #14171d; --card: #1e232c; --text: #e6e9ef; --muted: #9aa3b2;
-      --border: #333b48; --accent: #6b9cff; --accent-text: #0d1220; --hit: #ffb4b4; --hit-bg: #3a2222;
+      --bg: #0e1220; --surface: #161c2e; --text: #e8ecf7; --muted: #9aa4bd;
+      --border: #26304a; --brand: #7aa2ff; --brand-2: #a593ff; --brand-text: #0b1020;
+      --hit: #ffb4b4; --hit-bg: #3a2030; --ok: #6fe3a8; --ok-bg: #173228;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
     }
   }
   :root[data-theme="dark"] {
-    --bg: #14171d; --card: #1e232c; --text: #e6e9ef; --muted: #9aa3b2;
-    --border: #333b48; --accent: #6b9cff; --accent-text: #0d1220; --hit: #ffb4b4; --hit-bg: #3a2222;
+    --bg: #0e1220; --surface: #161c2e; --text: #e8ecf7; --muted: #9aa4bd;
+    --border: #26304a; --brand: #7aa2ff; --brand-2: #a593ff; --brand-text: #0b1020;
+    --hit: #ffb4b4; --hit-bg: #3a2030; --ok: #6fe3a8; --ok-bg: #173228;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 60px; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 20px; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-  form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
-  label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 4px; }
-  input[type=text] { font: inherit; padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); min-width: 260px; }
-  select { font: inherit; padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
-  button { font: inherit; padding: 9px 16px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); cursor: pointer; font-weight: 600; }
-  button.secondary { background: transparent; color: var(--accent); }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-  .status { margin-top: 12px; color: var(--muted); min-height: 1.5em; }
-  .status.error { color: var(--hit); }
-  .toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
-  .queries { font-size: 12px; color: var(--muted); word-break: break-word; }
-  .queries code { display: block; background: var(--bg); padding: 6px 8px; border-radius: 6px; margin-top: 4px; }
-  .result { display: flex; gap: 12px; padding: 14px 0; border-top: 1px solid var(--border); }
-  .result:first-child { border-top: none; }
-  .result input[type=checkbox] { margin-top: 5px; transform: scale(1.2); }
-  .result h3 { font-size: 16px; margin: 0 0 2px; }
-  .result h3 a { color: var(--accent); text-decoration: none; }
-  .result h3 a:hover { text-decoration: underline; }
-  .meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-  .snippet { margin: 4px 0 6px; }
-  .chip { display: inline-block; font-size: 12px; background: var(--hit-bg); color: var(--hit); padding: 1px 8px; border-radius: 999px; margin: 2px 4px 0 0; }
-  .cat { display: inline-block; font-size: 11px; border: 1px solid var(--border); color: var(--muted); padding: 0 6px; border-radius: 4px; margin-right: 4px; }
-  .badge { font-size: 11px; color: var(--accent); font-weight: 600; margin-left: 6px; }
-  .empty { color: var(--muted); padding: 20px 0; text-align: center; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh; padding-bottom: 96px;
+  }
+  button, input, select { font: inherit; }
+
+  /* ---------- top bar ---------- */
+  header.top {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    backdrop-filter: saturate(160%) blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+  .top .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; gap: 12px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .2px; }
+  .logo {
+    width: 32px; height: 32px; border-radius: 9px;
+    background: linear-gradient(135deg, var(--brand), var(--brand-2));
+    display: grid; place-items: center; color: var(--brand-text); font-size: 16px;
+    box-shadow: var(--shadow);
+  }
+  .tag { font-size: 12px; color: var(--muted); border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px; }
+
+  /* ---------- hero / search ---------- */
+  .hero {
+    padding: 44px 0 28px;
+    background:
+      radial-gradient(900px 260px at 15% -10%, color-mix(in srgb, var(--brand) 18%, transparent), transparent 70%),
+      radial-gradient(700px 240px at 90% -20%, color-mix(in srgb, var(--brand-2) 16%, transparent), transparent 70%);
+  }
+  .hero h1 { margin: 0 0 8px; font-size: clamp(24px, 3.4vw, 34px); letter-spacing: -.3px; }
+  .hero p { margin: 0 0 22px; color: var(--muted); max-width: 640px; }
+  .search {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 8px; box-shadow: var(--shadow);
+  }
+  .search .field { flex: 1 1 280px; display: flex; align-items: center; gap: 10px; padding: 0 12px; min-width: 0; }
+  .search .field svg { flex: none; color: var(--muted); }
+  .search input {
+    flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text);
+    padding: 12px 0; font-size: 16px;
+  }
+  .search input::placeholder { color: var(--muted); opacity: .8; }
+  .search select {
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    border-radius: 10px; padding: 0 12px; min-height: 44px;
+  }
+  .btn {
+    border: 0; border-radius: 10px; padding: 0 20px; min-height: 44px; cursor: pointer;
+    background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: var(--brand-text);
+    font-weight: 650; box-shadow: var(--shadow); transition: transform .08s ease, opacity .2s;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+  .btn.ghost { background: transparent; color: var(--brand); border: 1px solid var(--border); box-shadow: none; }
+
+  .status { margin-top: 12px; font-size: 14px; color: var(--muted); min-height: 20px; }
+  .status.error {
+    color: var(--hit); background: var(--hit-bg); border-radius: 10px; padding: 10px 14px; display: inline-block;
+  }
+
+  /* ---------- results area ---------- */
+  main.wrap { padding-top: 8px; }
   .hidden { display: none !important; }
-  @media (max-width: 600px) { input[type=text] { min-width: 0; width: 100%; } label { width: 100%; } }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 8px 0 18px; }
+  .stat {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px;
+    box-shadow: var(--shadow);
+  }
+  .stat b { display: block; font-size: 22px; letter-spacing: -.2px; }
+  .stat span { font-size: 12.5px; color: var(--muted); }
+
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip-btn {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 13.5px;
+  }
+  .chip-btn.on { background: var(--brand); border-color: var(--brand); color: var(--brand-text); }
+  .actions { display: flex; gap: 8px; }
+  .actions .btn { min-height: 38px; padding: 0 14px; font-size: 14px; }
+
+  .query-box {
+    background: var(--surface); border: 1px dashed var(--border); border-radius: 12px;
+    padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: var(--muted);
+  }
+  .query-box summary { cursor: pointer; font-weight: 600; color: var(--text); }
+  .query-box code { display: block; white-space: pre-wrap; word-break: break-word; margin-top: 6px; font-size: 12px; }
+
+  /* ---------- result cards ---------- */
+  .list { display: grid; gap: 12px; }
+  .card {
+    position: relative; display: grid; grid-template-columns: auto 1fr; gap: 14px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 18px; box-shadow: var(--shadow);
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .card:hover { transform: translateY(-1px); }
+  .card.off { opacity: .55; }
+  .card.on { border-color: color-mix(in srgb, var(--brand) 55%, var(--border)); }
+  .card input[type=checkbox] { width: 18px; height: 18px; margin-top: 4px; accent-color: var(--brand); cursor: pointer; }
+  .avatar {
+    width: 36px; height: 36px; border-radius: 10px; flex: none; display: grid; place-items: center;
+    font-weight: 700; color: var(--brand-text);
+    background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  }
+  .row { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+  .card h3 { margin: 0; font-size: 16.5px; line-height: 1.35; font-weight: 650; }
+  .card h3 a { color: var(--text); text-decoration: none; }
+  .card h3 a:hover { color: var(--brand); text-decoration: underline; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 4px; font-size: 12.5px; color: var(--muted); }
+  .domain { color: var(--brand); font-weight: 600; }
+  .pill { border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
+  .pill.name { background: var(--ok-bg); color: var(--ok); border-color: transparent; font-weight: 600; }
+  .snippet { margin: 10px 0 10px; color: var(--text); opacity: .9; font-size: 14.5px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .hits { display: flex; flex-wrap: wrap; gap: 6px; }
+  .hit { background: var(--hit-bg); color: var(--hit); border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+  .empty { text-align: center; color: var(--muted); padding: 48px 20px; border: 1px dashed var(--border); border-radius: 14px; }
+
+  .skeleton {
+    height: 96px; border-radius: 14px; background: linear-gradient(90deg, var(--surface), var(--border), var(--surface));
+    background-size: 200% 100%; animation: shimmer 1.2s infinite linear; border: 1px solid var(--border);
+  }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  /* ---------- sticky export bar ---------- */
+  .dock {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: saturate(160%) blur(10px);
+    border-top: 1px solid var(--border); box-shadow: 0 -8px 24px rgba(20,27,45,.08);
+  }
+  .dock .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 72px; }
+  .dock .count { font-size: 14px; color: var(--muted); }
+  .dock .count b { color: var(--text); font-size: 16px; }
+
+  @media (max-width: 760px) {
+    .stats { grid-template-columns: 1fr 1fr; }
+    .stats .stat:last-child { grid-column: span 2; }
+    .tag { display: none; }
+    .search .field { flex-basis: 100%; }
+    .search select, .search .btn { flex: 1; }
+    .dock .wrap { height: auto; padding: 12px 20px; flex-wrap: wrap; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <h1>Adverse Media Search</h1>
-  <p class="sub">Searches Google for the subject alongside financial-crime terms and sanctioned-jurisdiction terms, then exports the results you keep to PDF.</p>
 
-  <section class="card">
-    <form id="searchForm">
-      <label>Subject name
-        <input type="text" id="subject" placeholder="e.g. XXXXXXXXX" required minlength="2" maxlength="120" autocomplete="off">
+<header class="top">
+  <div class="wrap">
+    <div class="brand"><div class="logo">&#9906;</div><span>Adverse Media Search</span></div>
+    <span class="tag">Google Search via Vertex AI</span>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>Search adverse media</h1>
+    <p>Enter a name. We search the web for financial-crime and sanctions-related reports, then you choose what goes into the PDF.</p>
+    <form class="search" id="searchForm" autocomplete="off">
+      <label class="field">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="text" id="subject" placeholder="Full name or company, e.g. Jane Doe" required minlength="2" maxlength="120" aria-label="Subject name">
       </label>
-      <label>Results per query
-        <select id="maxResults">
-          <option value="10">10</option>
-          <option value="30" selected>30</option>
-          <option value="50">50</option>
-          <option value="100">100</option>
-        </select>
-      </label>
-      <button type="submit" id="searchBtn">Search</button>
+      <select id="maxResults" class="hidden" aria-hidden="true"></select>
+      <button type="submit" class="btn" id="searchBtn">Search</button>
     </form>
     <div class="status" id="status"></div>
-  </section>
+  </div>
+</section>
 
-  <section class="card hidden" id="resultsCard">
+<main class="wrap">
+  <div id="loading" class="list hidden">
+    <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+  </div>
+
+  <section id="resultsArea" class="hidden">
+    <div class="stats">
+      <div class="stat"><b id="statTotal">0</b><span>Sources found</span></div>
+      <div class="stat"><b id="statName">0</b><span>Name mentioned in text</span></div>
+      <div class="stat"><b id="statSelected">0</b><span>Selected for export</span></div>
+    </div>
+
+    <details class="query-box" id="queryBox">
+      <summary>Search queries used</summary>
+      <div id="queries"></div>
+    </details>
+
     <div class="toolbar">
-      <div>
-        <strong id="countLabel"></strong>
-        <div class="queries" id="queries"></div>
+      <div class="chips" id="filters">
+        <button class="chip-btn on" data-filter="all" type="button">All</button>
+        <button class="chip-btn" data-filter="name" type="button">Name in text</button>
+        <button class="chip-btn" data-filter="crime" type="button">Financial crime</button>
+        <button class="chip-btn" data-filter="sanctions" type="button">Sanctioned regions</button>
       </div>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button type="button" class="secondary" id="selectAll">Select all</button>
-        <button type="button" class="secondary" id="selectNone">Clear</button>
-        <button type="button" id="exportBtn">Export selected to PDF</button>
+      <div class="actions">
+        <button class="btn ghost" type="button" id="selectAll">Select all</button>
+        <button class="btn ghost" type="button" id="selectNone">Clear</button>
       </div>
     </div>
-    <div id="results"></div>
+
+    <div id="list" class="list"></div>
   </section>
 </main>
+
+<div class="dock hidden" id="dock">
+  <div class="wrap">
+    <div class="count"><b id="dockCount">0</b> links selected &middot; <span id="dockSubject"></span></div>
+    <button class="btn" type="button" id="exportBtn">Export selected to PDF</button>
+  </div>
+</div>
 
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
   let current = { subject: '', results: [] };
+  let filter = 'all';
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  const domainOf = (r) => (r.displayLink || '').replace(/^www\./, '');
+  const initialOf = (r) => (domainOf(r).charAt(0) || '?').toUpperCase();
+
   function setStatus(msg, isError) {
-    $('status').textContent = msg || '';
-    $('status').classList.toggle('error', !!isError);
+    const el = $('status');
+    el.textContent = msg || '';
+    el.classList.toggle('error', !!isError);
   }
 
-  function renderResults() {
-    const list = $('results');
-    if (!current.results.length) {
-      list.innerHTML = '<div class="empty">No results found.</div>';
-    } else {
-      list.innerHTML = current.results.map((r, i) => `
-        <div class="result">
-          <input type="checkbox" data-i="${i}" ${r.selected ? 'checked' : ''} aria-label="Include result ${i + 1}">
-          <div style="flex:1; min-width:0;">
-            <h3><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a>
-              ${r.subjectInText ? '<span class="badge">Name in text</span>' : ''}</h3>
-            <div class="meta">${esc(r.displayLink)}${r.date ? ' · ' + esc(r.date.slice(0, 10)) : ''}</div>
-            <div>${(r.categories || []).map((c) => `<span class="cat">${esc(c)}</span>`).join('')}</div>
-            <div class="snippet">${esc(r.snippet)}</div>
-            <div>${(r.matchedTerms || []).map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div>
-          </div>
-        </div>`).join('');
-    }
-    updateCount();
+  function visible(r) {
+    if (filter === 'name') return r.subjectInText;
+    if (filter === 'crime') return (r.categories || []).some((c) => c.indexOf('financial') > -1);
+    if (filter === 'sanctions') return (r.categories || []).some((c) => c.indexOf('Sanctioned') > -1);
+    return true;
   }
 
-  function updateCount() {
+  function renderStats() {
+    $('statTotal').textContent = current.results.length;
+    $('statName').textContent = current.results.filter((r) => r.subjectInText).length;
+    $('statSelected').textContent = current.results.filter((r) => r.selected).length;
     const n = current.results.filter((r) => r.selected).length;
-    $('countLabel').textContent = `${current.results.length} results · ${n} selected for export`;
+    $('dockCount').textContent = n;
+    $('dockSubject').textContent = current.subject ? `Subject: ${current.subject}` : '';
     $('exportBtn').disabled = n === 0;
+    $('dock').classList.toggle('hidden', !current.results.length);
   }
 
-  $('results').addEventListener('change', (e) => {
+  function renderList() {
+    const list = $('list');
+    const items = current.results
+      .map((r, i) => ({ r, i }))
+      .filter(({ r }) => visible(r));
+
+    if (!current.results.length) {
+      list.innerHTML = '<div class="empty">No results found. Try a different spelling or the full name.</div>';
+    } else if (!items.length) {
+      list.innerHTML = '<div class="empty">Nothing matches this filter.</div>';
+    } else {
+      list.innerHTML = items.map(({ r, i }) => `
+        <article class="card ${r.selected ? 'on' : 'off'}">
+          <input type="checkbox" data-i="${i}" ${r.selected ? 'checked' : ''} aria-label="Include ${esc(r.title)}">
+          <div style="min-width:0">
+            <div class="row">
+              <div class="avatar" aria-hidden="true">${esc(initialOf(r))}</div>
+              <div style="min-width:0">
+                <h3><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a></h3>
+                <div class="meta">
+                  <span class="domain">${esc(domainOf(r))}</span>
+                  ${r.date ? `<span>&middot; ${esc(r.date.slice(0, 10))}</span>` : ''}
+                  ${r.subjectInText ? '<span class="pill name">Name in text</span>' : ''}
+                  ${(r.categories || []).map((c) => `<span class="pill">${esc(c)}</span>`).join('')}
+                </div>
+              </div>
+            </div>
+            ${r.snippet ? `<p class="snippet">${esc(r.snippet)}</p>` : ''}
+            ${(r.matchedTerms || []).length ? `<div class="hits">${r.matchedTerms.map((t) => `<span class="hit">${esc(t)}</span>`).join('')}</div>` : ''}
+          </div>
+        </article>`).join('');
+    }
+    renderStats();
+  }
+
+  $('list').addEventListener('change', (e) => {
     const i = Number(e.target.dataset.i);
-    if (!Number.isNaN(i)) {
+    if (!Number.isNaN(i) && current.results[i]) {
       current.results[i].selected = e.target.checked;
-      updateCount();
+      renderList();
     }
   });
 
-  $('selectAll').onclick = () => { current.results.forEach((r) => (r.selected = true)); renderResults(); };
-  $('selectNone').onclick = () => { current.results.forEach((r) => (r.selected = false)); renderResults(); };
+  document.querySelectorAll('#filters .chip-btn').forEach((b) => {
+    b.addEventListener('click', () => {
+      filter = b.dataset.filter;
+      document.querySelectorAll('#filters .chip-btn').forEach((x) => x.classList.toggle('on', x === b));
+      renderList();
+    });
+  });
+
+  $('selectAll').onclick = () => { current.results.forEach((r) => (r.selected = true)); renderList(); };
+  $('selectNone').onclick = () => { current.results.forEach((r) => (r.selected = false)); renderList(); };
 
   $('searchForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -149,29 +343,36 @@
     if (!subject) return;
     const btn = $('searchBtn');
     btn.disabled = true;
-    $('resultsCard').classList.add('hidden');
-    setStatus('Searching Google... this can take 10-30 seconds.');
+    btn.textContent = 'Searching...';
+    $('resultsArea').classList.add('hidden');
+    $('loading').classList.remove('hidden');
+    $('dock').classList.add('hidden');
+    setStatus('Searching Google. This usually takes 20-60 seconds.');
     try {
       const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, maxResults: Number($('maxResults').value) }),
+        body: JSON.stringify({ subject }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Search failed');
       current = {
         subject: data.subject,
         results: data.results.map((r) => ({ ...r, selected: true })),
       };
+      filter = 'all';
+      document.querySelectorAll('#filters .chip-btn').forEach((x) => x.classList.toggle('on', x.dataset.filter === 'all'));
       $('queries').innerHTML = data.queries.map((q) =>
-        `<div>${esc(q.category)}:</div><code>${esc(q.query)}</code>`).join('');
-      $('resultsCard').classList.remove('hidden');
-      renderResults();
-      setStatus(`Done. ${data.count} unique results.`);
+        `<div style="margin-top:8px"><b>${esc(q.category)}</b><code>${esc(q.query)}</code></div>`).join('');
+      $('resultsArea').classList.remove('hidden');
+      renderList();
+      setStatus(`Found ${data.count} sources for "${data.subject}".`);
     } catch (err) {
       setStatus(err.message, true);
     } finally {
+      $('loading').classList.add('hidden');
       btn.disabled = false;
+      btn.textContent = 'Search';
     }
   });
 
@@ -180,6 +381,7 @@
     if (!selected.length) return;
     const btn = $('exportBtn');
     btn.disabled = true;
+    btn.textContent = 'Preparing PDF...';
     try {
       const res = await fetch('/api/export-pdf', {
         method: 'POST',
@@ -198,11 +400,12 @@
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setStatus(`Exported ${selected.length} results to PDF.`);
+      setStatus(`Exported ${selected.length} links to PDF.`);
     } catch (err) {
       setStatus(err.message, true);
     } finally {
-      updateCount();
+      btn.textContent = 'Export selected to PDF';
+      renderStats();
     }
   };
 })();
