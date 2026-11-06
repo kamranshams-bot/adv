@@ -227,7 +227,8 @@ function scoreResult(r) {
 
   if (top) {
     score += top;
-    reasons.push(`${LEVEL_NAME[top]}-severity keyword: ${crimeHits.join(', ')}`);
+    const topTerms = crimeHits.filter((t) => SEVERITY[t.toLowerCase()] === top);
+    reasons.push(`${LEVEL_NAME[top]}-severity keyword: ${topTerms.join(', ')}`);
   }
   if (regionHits.length && crimeHits.length) {
     score += 2;
