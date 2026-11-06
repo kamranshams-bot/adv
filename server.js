@@ -153,8 +153,17 @@ function buildPrompt(subject, terms, label) {
   ].join(' ');
 }
 
-async function runSearch(subject) {
+// Results are cached per subject for 24 hours, so repeat searches are instant.
+// Pass refresh: true to run a new search.
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const searchCache = new Map(); // subject (lowercase) -> { at, results }
+
+async function runSearch(subject, refresh = false) {
   const subjectLower = subject.toLowerCase();
+  const cached = searchCache.get(subjectLower);
+  if (!refresh && cached && Date.now() - cached.at < CACHE_TTL_MS) {
+    return cached.results.map((r) => ({ ...r }));
+  }
   const byLink = new Map();
 
   const groups = [
@@ -162,8 +171,11 @@ async function runSearch(subject) {
     { category: 'Sanctioned jurisdictions', terms: REGION_TERMS },
   ];
 
-  for (const { category, terms } of groups) {
-    const items = await groundedSearch(buildPrompt(subject, terms, category));
+  // Run both searches at the same time
+  const fetched = await Promise.all(
+    groups.map(async (g) => ({ ...g, items: await groundedSearch(buildPrompt(subject, g.terms, g.category)) }))
+  );
+  for (const { category, terms, items } of fetched) {
     for (const it of items) {
       const text = `${it.title || ''} ${it.snippet || ''}`;
       const lower = text.toLowerCase();
@@ -190,11 +202,13 @@ async function runSearch(subject) {
   const all = [...byLink.values()];
   all.forEach(applyRisk);
   // Highest risk first, then subject named in text, then most keyword hits
-  return all.sort(
+  all.sort(
     (a, b) => b.riskScore - a.riskScore
       || Number(b.subjectInText) - Number(a.subjectInText)
       || b.matchedTerms.length - a.matchedTerms.length
   );
+  searchCache.set(subjectLower, { at: Date.now(), results: all });
+  return all;
 }
 
 // ---- Risk rating ----
@@ -325,7 +339,6 @@ function buildPdf(res, subject, results) {
       .text(`${i + 1}. ${r.title}`, { link: r.link, underline: false });
     doc.font('Helvetica').fontSize(9).fillColor(MUTED);
     doc.text(`Source: ${r.displayLink || ''}${r.date ? `   Date: ${r.date.slice(0, 10)}` : ''}`);
-    doc.fillColor(BLUE).text(r.link, { link: r.link, underline: true });
     const RISK_TEXT = { high: '#9b1c1c', medium: '#8a5a00', low: '#0f7b4b' };
     doc.font('Helvetica-Bold').fontSize(9).fillColor(RISK_TEXT[r.risk] || MUTED)
       .text(`Risk: ${(r.risk || 'low').toUpperCase()}`, { continued: true });
@@ -418,7 +431,7 @@ const server = http.createServer(async (req, res) => {
         category,
         query: buildPrompt(subject, terms, category),
       }));
-      const results = await runSearch(subject);
+      const results = await runSearch(subject, body.refresh === true);
       return sendJson(res, 200, {
         subject,
         queries,
