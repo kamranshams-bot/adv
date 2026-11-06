@@ -1,0 +1,16 @@
+{
+  "name": "adverse-media-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Adverse media search portal using Google Programmable Search, with PDF export",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "pdfkit": "^0.15.0"
+  }
+}

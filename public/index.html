@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adverse Media Search</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --text: #1d2330; --muted: #5d6675;
+    --border: #d9dde5; --accent: #1a4fb3; --accent-text: #ffffff; --hit: #8a1c1c; --hit-bg: #fbe9e9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171d; --card: #1e232c; --text: #e6e9ef; --muted: #9aa3b2;
+      --border: #333b48; --accent: #6b9cff; --accent-text: #0d1220; --hit: #ffb4b4; --hit-bg: #3a2222;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171d; --card: #1e232c; --text: #e6e9ef; --muted: #9aa3b2;
+    --border: #333b48; --accent: #6b9cff; --accent-text: #0d1220; --hit: #ffb4b4; --hit-bg: #3a2222;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+  label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 4px; }
+  input[type=text] { font: inherit; padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); min-width: 260px; }
+  select { font: inherit; padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+  button { font: inherit; padding: 9px 16px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); cursor: pointer; font-weight: 600; }
+  button.secondary { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .status { margin-top: 12px; color: var(--muted); min-height: 1.5em; }
+  .status.error { color: var(--hit); }
+  .toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .queries { font-size: 12px; color: var(--muted); word-break: break-word; }
+  .queries code { display: block; background: var(--bg); padding: 6px 8px; border-radius: 6px; margin-top: 4px; }
+  .result { display: flex; gap: 12px; padding: 14px 0; border-top: 1px solid var(--border); }
+  .result:first-child { border-top: none; }
+  .result input[type=checkbox] { margin-top: 5px; transform: scale(1.2); }
+  .result h3 { font-size: 16px; margin: 0 0 2px; }
+  .result h3 a { color: var(--accent); text-decoration: none; }
+  .result h3 a:hover { text-decoration: underline; }
+  .meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .snippet { margin: 4px 0 6px; }
+  .chip { display: inline-block; font-size: 12px; background: var(--hit-bg); color: var(--hit); padding: 1px 8px; border-radius: 999px; margin: 2px 4px 0 0; }
+  .cat { display: inline-block; font-size: 11px; border: 1px solid var(--border); color: var(--muted); padding: 0 6px; border-radius: 4px; margin-right: 4px; }
+  .badge { font-size: 11px; color: var(--accent); font-weight: 600; margin-left: 6px; }
+  .empty { color: var(--muted); padding: 20px 0; text-align: center; }
+  .hidden { display: none !important; }
+  @media (max-width: 600px) { input[type=text] { min-width: 0; width: 100%; } label { width: 100%; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Adverse Media Search</h1>
+  <p class="sub">Searches Google for the subject alongside financial-crime terms and sanctioned-jurisdiction terms, then exports the results you keep to PDF.</p>
+
+  <section class="card">
+    <form id="searchForm">
+      <label>Subject name
+        <input type="text" id="subject" placeholder="e.g. XXXXXXXXX" required minlength="2" maxlength="120" autocomplete="off">
+      </label>
+      <label>Results per query
+        <select id="maxResults">
+          <option value="10">10</option>
+          <option value="30" selected>30</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </label>
+      <button type="submit" id="searchBtn">Search</button>
+    </form>
+    <div class="status" id="status"></div>
+  </section>
+
+  <section class="card hidden" id="resultsCard">
+    <div class="toolbar">
+      <div>
+        <strong id="countLabel"></strong>
+        <div class="queries" id="queries"></div>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="secondary" id="selectAll">Select all</button>
+        <button type="button" class="secondary" id="selectNone">Clear</button>
+        <button type="button" id="exportBtn">Export selected to PDF</button>
+      </div>
+    </div>
+    <div id="results"></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  let current = { subject: '', results: [] };
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function setStatus(msg, isError) {
+    $('status').textContent = msg || '';
+    $('status').classList.toggle('error', !!isError);
+  }
+
+  function renderResults() {
+    const list = $('results');
+    if (!current.results.length) {
+      list.innerHTML = '<div class="empty">No results found.</div>';
+    } else {
+      list.innerHTML = current.results.map((r, i) => `
+        <div class="result">
+          <input type="checkbox" data-i="${i}" ${r.selected ? 'checked' : ''} aria-label="Include result ${i + 1}">
+          <div style="flex:1; min-width:0;">
+            <h3><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a>
+              ${r.subjectInText ? '<span class="badge">Name in text</span>' : ''}</h3>
+            <div class="meta">${esc(r.displayLink)}${r.date ? ' · ' + esc(r.date.slice(0, 10)) : ''}</div>
+            <div>${(r.categories || []).map((c) => `<span class="cat">${esc(c)}</span>`).join('')}</div>
+            <div class="snippet">${esc(r.snippet)}</div>
+            <div>${(r.matchedTerms || []).map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div>
+          </div>
+        </div>`).join('');
+    }
+    updateCount();
+  }
+
+  function updateCount() {
+    const n = current.results.filter((r) => r.selected).length;
+    $('countLabel').textContent = `${current.results.length} results · ${n} selected for export`;
+    $('exportBtn').disabled = n === 0;
+  }
+
+  $('results').addEventListener('change', (e) => {
+    const i = Number(e.target.dataset.i);
+    if (!Number.isNaN(i)) {
+      current.results[i].selected = e.target.checked;
+      updateCount();
+    }
+  });
+
+  $('selectAll').onclick = () => { current.results.forEach((r) => (r.selected = true)); renderResults(); };
+  $('selectNone').onclick = () => { current.results.forEach((r) => (r.selected = false)); renderResults(); };
+
+  $('searchForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const subject = $('subject').value.trim();
+    if (!subject) return;
+    const btn = $('searchBtn');
+    btn.disabled = true;
+    $('resultsCard').classList.add('hidden');
+    setStatus('Searching Google... this can take 10-30 seconds.');
+    try {
+      const res = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, maxResults: Number($('maxResults').value) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Search failed');
+      current = {
+        subject: data.subject,
+        results: data.results.map((r) => ({ ...r, selected: true })),
+      };
+      $('queries').innerHTML = data.queries.map((q) =>
+        `<div>${esc(q.category)}:</div><code>${esc(q.query)}</code>`).join('');
+      $('resultsCard').classList.remove('hidden');
+      renderResults();
+      setStatus(`Done. ${data.count} unique results.`);
+    } catch (err) {
+      setStatus(err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $('exportBtn').onclick = async () => {
+    const selected = current.results.filter((r) => r.selected);
+    if (!selected.length) return;
+    const btn = $('exportBtn');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/export-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject: current.subject, results: selected }),
+      });
+      if (!res.ok) throw new Error('PDF export failed');
+      const blob = await res.blob();
+      const cd = res.headers.get('Content-Disposition') || '';
+      const name = (cd.match(/filename="([^"]+)"/) || [])[1] || 'adverse-media-report.pdf';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setStatus(`Exported ${selected.length} results to PDF.`);
+    } catch (err) {
+      setStatus(err.message, true);
+    } finally {
+      updateCount();
+    }
+  };
+})();
+</script>
+</body>
+</html>
