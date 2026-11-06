@@ -14,9 +14,22 @@ if (fs.existsSync(envPath)) {
   }
 }
 
+const crypto = require('crypto');
+
 const PORT = Number(process.env.PORT) || 3000;
-const API_KEY = process.env.GOOGLE_API_KEY;
-const CSE_ID = process.env.GOOGLE_CSE_ID;
+// Service account key (full JSON text), set as a secret in Render.
+const SA_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+// Gemini model used for Google Search grounding on Vertex AI.
+const MODEL = process.env.VERTEX_MODEL || 'gemini-2.5-flash';
+// Vertex AI location. "global" works for Gemini models with Google Search.
+const LOCATION = process.env.VERTEX_LOCATION || 'global';
+
+let sa = null;
+try {
+  if (SA_JSON) sa = JSON.parse(SA_JSON);
+} catch {
+  console.error('GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON');
+}
 
 // ---- search terms (from the brief) ----
 const CRIME_TERMS = [
@@ -49,42 +62,108 @@ function buildQueries(subject) {
   ];
 }
 
-// ---- Google Custom Search ----
-async function googleSearch(q, maxResults) {
-  const items = [];
-  const limit = Math.min(maxResults, 100); // API returns at most 100 results per query
-  for (let start = 1; start <= limit; start += 10) {
-    const url = new URL('https://www.googleapis.com/customsearch/v1');
-    url.search = new URLSearchParams({
-      key: API_KEY,
-      cx: CSE_ID,
-      q,
-      start: String(start),
-      num: String(Math.min(10, limit - start + 1)),
-    }).toString();
-    const res = await fetch(url);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(`Google API error (${res.status}): ${data.error?.message || 'unknown error'}`);
-    }
-    if (!data.items || data.items.length === 0) break;
-    items.push(...data.items);
-    if (data.items.length < 10) break;
+// ---- Service account -> OAuth access token (JWT bearer flow, no extra packages) ----
+let cachedToken = null; // { token, expiresAt }
+
+function base64url(input) {
+  return Buffer.from(input).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+async function getAccessToken() {
+  if (!sa) throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_JSON. See README.');
+  const now = Math.floor(Date.now() / 1000);
+  if (cachedToken && cachedToken.expiresAt - 60 > now) return cachedToken.token;
+
+  const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const claims = base64url(JSON.stringify({
+    iss: sa.client_email,
+    scope: 'https://www.googleapis.com/auth/cloud-platform',
+    aud: sa.token_uri || 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+  }));
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(`${header}.${claims}`);
+  const signature = signer.sign(sa.private_key, 'base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const assertion = `${header}.${claims}.${signature}`;
+
+  const res = await fetch(sa.token_uri || 'https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.access_token) {
+    throw new Error(`Could not get Google access token (${res.status}): ${data.error_description || data.error || 'unknown'}`);
   }
-  return items;
+  cachedToken = { token: data.access_token, expiresAt: now + (data.expires_in || 3600) };
+  return cachedToken.token;
 }
 
-function publishedDate(item) {
-  const meta = item.pagemap?.metatags?.[0] || {};
-  return meta['article:published_time'] || meta['og:updated_time'] || meta.date || '';
+// ---- Google Search via Gemini grounding on Vertex AI ----
+// Returns [{ title, link, displayLink, snippet }] from the sources Google used for the answer.
+async function groundedSearch(prompt) {
+  const token = await getAccessToken();
+  const host = LOCATION === 'global' ? 'aiplatform.googleapis.com' : `${LOCATION}-aiplatform.googleapis.com`;
+  const url = `https://${host}/v1/projects/${sa.project_id}/locations/${LOCATION}/publishers/google/models/${MODEL}:generateContent`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      tools: [{ googleSearch: {} }],
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`Vertex AI error (${res.status}): ${data.error?.message || 'unknown error'}`);
+  }
+
+  const candidate = data.candidates?.[0] || {};
+  const meta = candidate.groundingMetadata || {};
+  const chunks = meta.groundingChunks || [];
+  const supports = meta.groundingSupports || [];
+
+  return chunks
+    .map((c, i) => {
+      if (!c.web?.uri) return null;
+      // Text from the answer that is backed by this source
+      const snippet = supports
+        .filter((s) => (s.groundingChunkIndices || []).includes(i) && s.segment?.text)
+        .map((s) => s.segment.text)
+        .join(' ')
+        .slice(0, 500);
+      const title = c.web.title || c.web.domain || c.web.uri;
+      return {
+        title,
+        link: c.web.uri,
+        displayLink: c.web.domain || title,
+        snippet,
+      };
+    })
+    .filter(Boolean);
 }
 
-async function runSearch(subject, maxResults) {
+function buildPrompt(subject, terms, label) {
+  return [
+    `Search Google for public news reports, court records, regulatory actions and other sources about "${subject}".`,
+    `Only include reports that mention "${subject}" together with one or more of these: ${terms.join(', ')}.`,
+    `For each source, briefly state what it says about ${subject}. Cite the sources you used.`,
+    `Topic group: ${label}.`,
+  ].join(' ');
+}
+
+async function runSearch(subject) {
   const subjectLower = subject.toLowerCase();
   const byLink = new Map();
 
-  for (const { category, terms, q } of buildQueries(subject)) {
-    const items = await googleSearch(q, maxResults);
+  const groups = [
+    { category: 'Adverse media (financial crime)', terms: CRIME_TERMS },
+    { category: 'Sanctioned jurisdictions', terms: REGION_TERMS },
+  ];
+
+  for (const { category, terms } of groups) {
+    const items = await groundedSearch(buildPrompt(subject, terms, category));
     for (const it of items) {
       const text = `${it.title || ''} ${it.snippet || ''}`;
       const lower = text.toLowerCase();
@@ -92,11 +171,11 @@ async function runSearch(subject, maxResults) {
       let r = byLink.get(it.link);
       if (!r) {
         r = {
-          title: it.title || it.link,
+          title: it.title,
           link: it.link,
-          displayLink: it.displayLink || '',
-          snippet: it.snippet || '',
-          date: publishedDate(it),
+          displayLink: it.displayLink,
+          snippet: it.snippet,
+          date: '',
           subjectInText: lower.includes(subjectLower),
           categories: [],
           matchedTerms: [],
@@ -219,8 +298,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && req.url === '/api/search') {
-      if (!API_KEY || !CSE_ID) {
-        return sendJson(res, 500, { error: 'Missing GOOGLE_API_KEY or GOOGLE_CSE_ID. See .env.example.' });
+      if (!sa) {
+        return sendJson(res, 500, { error: 'Missing GOOGLE_SERVICE_ACCOUNT_JSON. See README.' });
       }
       const body = await readJson(req);
       const subject = String(body.subject || '').trim();
@@ -230,9 +309,11 @@ const server = http.createServer(async (req, res) => {
       if (/["\\]/.test(subject)) {
         return sendJson(res, 400, { error: 'Remove quote marks and backslashes from the name.' });
       }
-      const maxResults = Math.max(10, Math.min(100, Number(body.maxResults) || 30));
-      const queries = buildQueries(subject).map(({ category, q }) => ({ category, query: q }));
-      const results = await runSearch(subject, maxResults);
+      const queries = buildQueries(subject).map(({ category, terms }) => ({
+        category,
+        query: buildPrompt(subject, terms, category),
+      }));
+      const results = await runSearch(subject);
       return sendJson(res, 200, { subject, queries, count: results.length, results });
     }
 
@@ -262,7 +343,7 @@ const server = http.createServer(async (req, res) => {
 const HOST = process.env.HOST || '127.0.0.1';
 server.listen(PORT, HOST, () => {
   console.log(`Adverse media portal running at http://localhost:${PORT}`);
-  if (!API_KEY || !CSE_ID) console.log('Warning: GOOGLE_API_KEY / GOOGLE_CSE_ID not set (see .env.example)');
+  if (!sa) console.log('Warning: GOOGLE_SERVICE_ACCOUNT_JSON not set (see .env.example)');
 });
 
 module.exports = { buildQueries, CRIME_TERMS, REGION_TERMS };
